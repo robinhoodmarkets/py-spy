@@ -194,15 +194,8 @@ fn sample_flame(process: &PythonSpy, filename: &str, args: &clap::ArgMatches) ->
         println!("{}", exit_message);
     }
 
-    let out_file = std::fs::File::create(filename)?;
-    flame.write(out_file)?;
+    flame.write(filename)?;
     println!("Wrote flame graph '{}'. Samples: {} Errors: {}", filename, samples, errors);
-
-    // open generated flame graph in the browser on OSX (theory being that on linux
-    // you might be SSH'ed into a server somewhere and this isn't desired, but on
-    // that is pretty unlikely for osx) (note to self: xdg-open will open on linux)
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg(filename).spawn()?;
 
     Ok(())
 }
@@ -225,11 +218,11 @@ fn pyspy_main() -> Result<(), Error> {
         .arg(Arg::with_name("dump")
             .long("dump")
             .help("Dump the current stack traces to stdout"))
-        .arg(Arg::with_name("flame")
-            .short("f")
-            .long("flame")
-            .value_name("flamefile")
-            .help("Generate a flame graph and write to a file")
+        .arg(Arg::with_name("out")
+            .short("o")
+            .long("output")
+            .value_name("output_file")
+            .help("Prefix for output files.")
             .takes_value(true))
         .arg(Arg::with_name("rate")
             .short("r")
@@ -270,8 +263,8 @@ fn pyspy_main() -> Result<(), Error> {
 
         if matches.occurrences_of("dump") > 0 {
             print_traces(&process.get_stack_traces()?, true);
-        } else if let Some(flame_file) = matches.value_of("flame") {
-            sample_flame(&process, flame_file, &matches)?;
+        } else if let Some(output_file) = matches.value_of("out") {
+            sample_flame(&process, output_file, &matches)?;
         } else {
             sample_console(&process, &format!("pid: {}", pid), &matches)?;
         }
@@ -295,8 +288,8 @@ fn pyspy_main() -> Result<(), Error> {
         }
         let result = match PythonSpy::retry_new(command.id() as read_process_memory::Pid, 8) {
             Ok(process) => {
-                if let Some(flame_file) = matches.value_of("flame") {
-                    sample_flame(&process, flame_file, &matches)
+                if let Some(output_file) = matches.value_of("out") {
+                    sample_flame(&process, output_file, &matches)
                 } else {
                     sample_console(&process, &subprocess.join(" "), &matches)
                 }

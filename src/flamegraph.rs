@@ -41,20 +41,18 @@ use stack_trace::StackTrace;
 const FLAMEGRAPH_SCRIPT: &[u8] = include_bytes!("../vendor/flamegraph/flamegraph.pl");
 
 pub struct Flamegraph {
-    pub counts: HashMap<Vec<u8>, usize>,
+    pub all_counts: HashMap<Vec<u8>, usize>,
+    pub gil_counts: HashMap<Vec<u8>, usize>,
     pub show_linenumbers: bool,
 }
 
 impl Flamegraph {
     pub fn new(show_linenumbers: bool) -> Flamegraph {
-        Flamegraph { counts: HashMap::new(), show_linenumbers }
+        Flamegraph { all_counts: HashMap::new(), gil_counts: HashMap::new(), show_linenumbers }
     }
 
     pub fn increment(&mut self, traces: &[StackTrace]) -> std::io::Result<()> {
         for trace in traces {
-            if !(trace.active) {
-                continue;
-            }
             let mut buf = vec![];
             for frame in trace.frames.iter().rev() {
                 let filename = match &frame.short_filename { Some(f) => &f, None => &frame.filename };
@@ -64,20 +62,27 @@ impl Flamegraph {
                     write!(&mut buf, "{} ({});", frame.name, filename)?;
                 }
             }
-            *self.counts.entry(buf).or_insert(0) += 1;
+            if trace.owns_gil {
+                let buf_copy = buf.to_vec();
+                *self.gil_counts.entry(buf_copy).or_insert(0) += 1;
+            }
+            *self.all_counts.entry(buf).or_insert(0) += 1;
         }
         Ok(())
     }
 
-    pub fn write(&self, w: File) -> Result<(), Error> {
-        let tempdir = tempdir::TempDir::new("flamegraph").unwrap();
-        let stacks_file = tempdir.path().join("stacks.txt");
-        let mut file = File::create(&stacks_file).expect("couldn't create file");
-        for (k, v) in &self.counts {
-            file.write_all(&k)?;
-            writeln!(file, " {}", v)?;
+    pub fn write(&self, file_prefix: &str) -> Result<(), Error> {
+        let mut all_file = File::create(format!("{}.all", file_prefix))?;
+        let mut gil_file = File::create(format!("{}.gil", file_prefix))?;
+        for (k, v) in &self.all_counts {
+            all_file.write_all(&k)?;
+            writeln!(all_file, " {}", v)?;
         }
-        write_flamegraph(&stacks_file, w)
+        for (k, v) in &self.gil_counts {
+            gil_file.write_all(&k)?;
+            writeln!(gil_file, " {}", v)?;
+        }
+        Ok(())
     }
 }
 
